@@ -88,6 +88,8 @@ tr:last-child td{border-bottom:0}
 .it{display:flex;gap:12px;align-items:flex-start;padding:10px 16px;border-bottom:1px solid #f0f2f5}
 .it:last-child{border-bottom:0}
 .it input{appearance:none;-webkit-appearance:none;width:20px;height:20px;border:1.5px solid #c3c9d4;border-radius:6px;margin:1px 0 0;flex:none;cursor:pointer;display:grid;place-items:center;background:#fff}
+.it input:disabled{cursor:not-allowed;opacity:.85}
+body.locked #resetBtn{display:none}
 .it input:checked{background:var(--ok);border-color:var(--ok)}
 .it input:checked::after{content:"";width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
 .it label{flex:1;cursor:pointer;font-size:14.5px}
@@ -133,10 +135,19 @@ textarea.copy{width:100%;height:160px;margin-top:8px;font:12px ui-monospace,mono
       <div class="sub">Virtual showroom, VR and digital-twin W/Os · tap a row to open its scope checklist</div>
     </div>
     <div style="display:flex;gap:8px">
+      <button class="btn" id="lockBtn">🔒 Locked</button>
       <button class="btn" id="copyBtn">Copy status</button>
       <button class="btn" id="resetBtn">Clear ticks</button>
     </div>
   </header>
+  <div id="pinBox" style="display:none;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+    <form id="pinForm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:13.5px;color:var(--mut)">Enter the editor PIN to update ticks</span>
+      <input id="pinIn" type="password" inputmode="text" autocomplete="off" placeholder="PIN" style="font:14px var(--f);padding:8px 12px;border:1px solid var(--line);border-radius:10px;width:140px">
+      <button class="btn pri" type="submit">Unlock</button>
+      <span id="pinMsg" style="font-size:13px;color:#c0352b"></span>
+    </form>
+  </div>
   <textarea class="copy" id="copyBox" readonly aria-label="Status text"></textarea>
 
   <section class="reg" aria-label="All work orders">
@@ -494,13 +505,33 @@ function renderSecs(wo){
       <div class="items">${rows||'<div class="empty">Nothing here for this filter.</div>'}</div></details>`;
   }).join("");
   box.querySelectorAll("details").forEach(d=>d.ontoggle=()=>{ d.open?openSecs.add(d.dataset.k):openSecs.delete(d.dataset.k); });
+  box.querySelectorAll("input[type=checkbox]").forEach(c=>c.disabled=!unlocked);
   box.querySelectorAll("input[type=checkbox]").forEach(c=>c.onchange=()=>{
+    if(!unlocked){c.checked=!c.checked;toast("Locked — tap 🔒 to unlock");return;}
     if(c.checked) S[c.dataset.id]=new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
     else delete S[c.dataset.id];
     save(); renderReg(); renderDetail();
   });
 }
 
+/* ---------- lock ---------- */
+const PIN_HASH="d22a495a608e9c121e631ccebe9be3e5ad9ff474a01a8aac12bebaaaf873259e";
+let unlocked=false; try{unlocked=sessionStorage.getItem("wo-unlock")==="1"}catch(e){}
+async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function applyLock(){
+  document.body.classList.toggle("locked",!unlocked);
+  const b=document.getElementById("lockBtn"); b.textContent=unlocked?"🔓 Editing — lock":"🔒 Locked";
+  document.querySelectorAll('.it input[type=checkbox]').forEach(c=>c.disabled=!unlocked);
+}
+document.getElementById("lockBtn").onclick=()=>{
+  if(unlocked){unlocked=false;try{sessionStorage.removeItem("wo-unlock")}catch(e){};applyLock();toast("Locked");return;}
+  const bx=document.getElementById("pinBox"); bx.style.display=bx.style.display==="none"?"block":"none"; document.getElementById("pinIn").focus();
+};
+document.getElementById("pinForm").onsubmit=async e=>{
+  e.preventDefault(); const v=document.getElementById("pinIn").value.trim();
+  if(await sha(v)===PIN_HASH){unlocked=true;try{sessionStorage.setItem("wo-unlock","1")}catch(e){};document.getElementById("pinBox").style.display="none";document.getElementById("pinIn").value="";document.getElementById("pinMsg").textContent="";applyLock();toast("Unlocked for editing");}
+  else document.getElementById("pinMsg").textContent="Wrong PIN";
+};
 /* ---------- copy / reset ---------- */
 function statusText(){
   return WOS.map(wo=>{
@@ -523,12 +554,13 @@ document.getElementById("copyBtn").onclick=async()=>{
 let armed=false;
 document.getElementById("resetBtn").onclick=e=>{
   const b=e.currentTarget;
+  if(!unlocked){toast("Locked — tap 🔒 to unlock");return;}
   if(!armed){ armed=true; b.textContent="Tap again to clear"; setTimeout(()=>{armed=false;b.textContent="Clear ticks";},3000); return; }
   const wo=WOS.find(w=>w.id===current); Object.keys(S).forEach(k=>{ if(k.startsWith(wo.id+"|")) delete S[k]; });
   save(); armed=false; b.textContent="Clear ticks"; renderReg(); renderDetail(); toast("Ticks cleared for "+wo.ref);
 };
 
-renderReg(); renderDetail();
+renderReg(); renderDetail(); applyLock();
 </script>
 </body>
 </html>
